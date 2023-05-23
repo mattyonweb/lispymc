@@ -104,6 +104,33 @@
 		    eval-on-expr
 		    eval-on-bdd))))))
 
+
+
+(defun tester-compare-bdd-or ()
+  "Test whether the eval of a random bexpr and relative BDD are equal"
+  (let*
+      ((expr1 (random-expr 1))
+       (expr2 (random-expr 1))
+       (expr3 (list 'or expr1 expr2))
+       (bdd1  (bdd-generate expr1))    
+       (bdd2  (bdd-generate expr2))    
+       (bdd3  (bdd-or bdd1 bdd2 #'min)))    
+    ; iterate on all possible assignments for the varids
+    (loop for hashmap in (assignments (unique-vars expr3)) do
+      (let
+	  ((eval-on-expr (eval-expr-assignment expr3 hashmap))
+	   (eval-on-bdd  (bdd-eval bdd3 hashmap)))
+	(if (not (eq eval-on-expr eval-on-bdd))
+	    (format t
+		    (concatenate 'string
+		     "~%=========================~%"
+		     "Expression:~%~a ~%BDD:~%~a ~%Assignment:~%~a ~%~a ~a~%")
+		    expr3
+		    bdd3
+		    (print-hashmap hashmap)
+		    eval-on-expr
+		    eval-on-bdd))))))
+
 ;; ======================================================
 
 (defun ugly-pbt (tester-function num-testcases)
@@ -113,5 +140,7 @@
 (ugly-pbt #'tester-compare-bdd-expr 1000)
 (ugly-pbt #'tester-compare-bdd-unique-vars 1000)
 (ugly-pbt #'tester-optimized-bdd-has-less-nodes 1000)
-(ugly-pbt #'tester-compare-bdd-and 1)
+(ugly-pbt #'tester-compare-bdd-and 1000)
+(ugly-pbt #'tester-compare-bdd-or 1000)
+
 (print "tests: ok")

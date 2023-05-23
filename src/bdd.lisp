@@ -199,24 +199,6 @@
 	base-case-check
 	(bdd-binop-core-algorithm bdd1 bdd2 min hashmap #'bdd-and-rec))))
 
-  ;; ;; otherwise:
-  ;; ;; get smallest varid `k`
-  ;; (let* ((k (funcall min (BDD-varid bdd1) (BDD-varid bdd2))))       
-  ;;   (multiple-value-bind (b0 b1 c0 c1)
-  ;; 	(if (= (BDD-varid bdd1) k)
-  ;; 	    (if (= (BDD-varid bdd2) k)
-  ;; 		(values (BDD-low bdd1) (BDD-high bdd1)
-  ;; 			(BDD-low bdd2) (BDD-high bdd2))
-  ;; 		(values (BDD-low bdd1) (BDD-high bdd1) bdd2 bdd2))
-  ;; 	    (if (= (BDD-varid bdd2) k)
-  ;; 		(values bdd1 bdd1 (BDD-low bdd2) (BDD-high bdd2))
-  ;; 		(error "one of them must be k!")))
-  ;;     (let* ((E (bdd-and-rec b0 c0 min hashmap))
-  ;; 	     (F (bdd-and-rec b1 c1 min hashmap))
-  ;; 	     (candidate (if (equalp E F) E
-  ;; 			    (make-BDD :varid k :low E :high F))))
-  ;; 	(progn (add-to-hashmap (list bdd1 bdd2) candidate hashmap)
-  ;; 	       candidate))))))
 
 
 (defun bdd-binop-core-algorithm (bdd1 bdd2 min hashmap recfunc)
@@ -238,3 +220,32 @@
 			    (make-BDD :varid k :low E :high F))))
 	(progn (add-to-hashmap (list bdd1 bdd2) candidate hashmap)
 	       candidate)))))
+
+
+
+
+(defun bdd-or (bdd1 bdd2 min)
+  (bdd-or-rec bdd1 bdd2 min (make-hash-table :test 'equalp)))
+
+(defun bdd-or-base-case (bdd1 bdd2 hashmap)
+  (cond
+    ;; if already in cache, do nothing
+    ((hashmap-contains hashmap (list bdd1 bdd2))
+     (value-of (list bdd1 bdd2) hashmap))
+
+    ;; basic boolean equalities
+    ((equalp bdd1 bdd2) bdd1)
+    ((and (truth-value? bdd1) (truth-value? bdd2)) (or bdd1 bdd2))
+    ((equalp bdd1 'NIL) bdd2)
+    ((equalp bdd2 'NIL) bdd1)
+    ((or (equalp bdd1 'T) (equalp bdd2 'T)) 'T)
+
+    ;; else, you can't terminate
+    (t 'keep-going)))
+
+(defun bdd-or-rec (bdd1 bdd2 min hashmap)
+  ;; first, check if you are in a terminal condition
+  (let ((base-case-check (bdd-or-base-case bdd1 bdd2 hashmap)))
+    (if (not (eq base-case-check 'keep-going))
+	base-case-check
+	(bdd-binop-core-algorithm bdd1 bdd2 min hashmap #'bdd-or-rec))))
