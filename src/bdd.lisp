@@ -2,6 +2,7 @@
 
 (defparameter ex1 '(and 1 2 true (or -1 false 3) ))
 (defparameter ex2 '(0) )
+(defparameter ex3 '(or (and 1 2) (and -1 -3) (and 1 -2 -3)))
 
 
 (typed bool-symp t boolean)
@@ -107,11 +108,6 @@
 	 :low   (bdd-generate (expr-sub expr k 'false) ordering-function)
 	 :high  (bdd-generate (expr-sub expr k 'true) ordering-function)))))
 
-(defparameter bdd1 (bdd-generate '(or 1 (and 2 -3))))
-(defparameter bdd2 (bdd-generate '(or 1 (and 2 -3))))
-(defparameter bdd3 bdd2)
-
-
 
 (defun bdd-eval (bdd assignment)
   (if (truth-value? bdd)
@@ -125,7 +121,6 @@
 (defun bdd-optimize (bdd)
   "Keep only one copy of identical subtrees"
   (bdd-optimize-rec bdd (make-hash-table :test 'equalp)))
-
 (defun bdd-optimize-rec (bdd hashcache)
   (if (truth-value? bdd) bdd
       (let ((cached-value (gethash bdd hashcache)))
@@ -141,8 +136,8 @@
 		optimized-bdd))))))
 	      
 
-
 (defun bdd-not (bdd)
+  "Negate a BDD formula."
   (if (truth-value? bdd)
       (not bdd)
       (make-BDD :varid (BDD-varid bdd)
@@ -151,6 +146,7 @@
 
 
 (defun bdd-count-nodes (bdd)
+  "For testing. Count how many unique nodes (=refs) are in a BDD."
   (bdd-count-nodes-rec bdd (make-hash-table :test 'eq)))
 (defun bdd-count-nodes-rec (bdd hashmap)
   (if (truth-value? bdd) 0
@@ -163,70 +159,47 @@
 		(add-to-hashmap bdd 't hashmap)
 		(+ 1 lowcount highcount)))))))
 
-'(or (and 1 2) (and -1 -3) (and 1 -2 -3))
+
+(defun bdd-unique-vars (bdd)
+  "Find all unique variables in BDD"
+  (diyset-keys (bdd-unique-vars-rec bdd (make-set))))
+(defun bdd-unique-vars-rec (bdd set)
+  ; can be greatly optimized: don't re-visit same nodes!
+  (if (truth-value? bdd) set
+      (let*
+	  ((low-set  (bdd-unique-vars-rec (BDD-low bdd) set))
+	   (high-set (bdd-unique-vars-rec (BDD-high bdd) low-set)))
+	(set-add high-set (BDD-varid bdd)))))
 
 
-;; ================ TESTING ========================== ;;
 
-(defun random-sign () (if (>= (random 1.0) 0.5) 1 -1))
-(defun random-varid () (* (random-sign) (+ 1 (random 10))))
-(defun random-expr (depth)
-  (if (<= depth 0)
-      (random-varid)
-      (let ((r (random 1.0)))
-	(cond
-	  ((< r 0.2)
-	   (random-varid))
-	  ((< r 0.6)
-	   (cons 'and
-		 (loop repeat (+ 2 (random 4))
-		       collect (random-expr (- depth 1)))))
-	  ((<= r 1.0)
-	   (cons 'or
-		 (loop repeat (+ 2 (random 4))
-		       collect (random-expr (- depth 1)))))
-	  ))))
+(defun bdd-and (bdd1 bdd2 min)
+  (bdd-and-rec bdd1 bdd2 min (make-set)))
+(defun bdd-and-rec (bdd1 bdd2 min set)
+  (cond
+    ((equalp bdd1 bdd2) bdd1)
+    ((and (truth-value? bdd1) (truth-value? bdd2)) (and bdd1 bdd2))
+    ((equalp bdd1 'T) bdd2)
+    ((equalp bdd2 'T) bdd1)
+    ((or (equalp bdd1 'NIL) (equalp bdd2 'NIL)) 'NIL)
+    (t
+     (let* ((k (funcall min (BDD-varid bdd1) (BDD-varid bdd2))))       
+       (multiple-value-bind (b0 b1 c0 c1)
+	   (if (= (BDD-varid bdd1) k)
+	       (if (= (BDD-varid bdd2) k)
+		   (values (BDD-low bdd1) (BDD-high bdd1)
+			   (BDD-low bdd2) (BDD-high bdd2))
+		   (values (BDD-low bdd1) (BDD-high bdd1) bdd2 bdd2))
+	       (if (= (BDD-varid bdd2) k)
+		   (values bdd1 bdd1 (BDD-low bdd2) (BDD-high bdd2))
+		   (values nil nil nil nil)))
+		   ;; (error "one of them must be k!")))
+	 (let ((E (bdd-and-rec b0 c0 min set))
+	       (F (bdd-and-rec b1 c1 min set)))
+	   (if (equalp E F) E
+	       (make-BDD :varid k :low E :high F))))))))
+	   
 
-
-(defun tester-compare-bdd-expr ()
-  "Test whether the eval of a random bexpr and relative BDD are equal"
-  (let*
-      ((expr (random-expr 1))
-       (bdd  (bdd-generate expr)))    
-    (loop for hashmap in (assignments (unique-vars expr)) do
-      (let
-	  ((eval-on-expr (eval-expr-assignment expr hashmap))
-	   (eval-on-bdd  (bdd-eval bdd hashmap)))
-	(if (not (eq eval-on-expr eval-on-bdd))
-	    (format t
-		    (concatenate 'string
-		     "~%=========================~%"
-		     "Expression:~%~a ~%BDD:~%~a ~%Assignment:~%~a ~%~a ~a~%")
-		    expr
-		    bdd
-		    (print-hashmap hashmap)
-		    eval-on-expr
-		    eval-on-bdd))))))
-
-
-(defun tester-optimized-bdd-has-less-nodes ()
-  "Number of nodes in optimized BDD must be <= than unoptimized BDD"
-  (let*
-      ((expr (random-expr 2))
-       (bdd  (bdd-generate expr))
-       (bdd-opt (bdd-optimize bdd)))
-    (if (not (<= (bdd-count-nodes bdd-opt) (bdd-count-nodes bdd)))
-	(format t
-		(concatenate 'string
-			     "~%=========================~%"
-			     "Expression:~%~a ~%BDD:~%~a ~%BDD-OPT:~%~a ~%~a ~a~%")
-		expr
-		bdd
-		bdd-opt
-		(bdd-count-nodes bdd)
-		(bdd-count-nodes bdd-opt)))))
-
-
-(defun ugly-pbt (tester-function num-testcases)
-  "Runner for pseudo-PBT tests"
-  (dotimes (i num-testcases) (funcall tester-function)))
+;; (defparameter bdd1 (bdd-generate '(and 1 2)))
+;; (defparameter bdd2 (bdd-generate '(and -1 -2)))
+;; (defparameter bdd3 (bdd-generate '(and 1 3)))

@@ -9,10 +9,16 @@
 	    (setf (gethash x hm) (= y 1)))
     hm))
 
-(defun add-to-hashmap (k v hashmap)
-  (setf (gethash k hashmap) v))
 
-(typed value-of integer hash-table t)
+(defun add-to-hashmap (k v hashmap)
+  (setf (gethash k hashmap) v)
+  hashmap)
+
+
+(defun hashmap-contains (hashmap k)
+  (nth-value 1 (gethash k hashmap)))
+
+
 (defun value-of (varid hashmap)
   "Given a hashmap, returns hashmap[varid]"
   (nth-value 0 (gethash varid hashmap)))
@@ -36,10 +42,31 @@ hash map (no 'NIL values)"
 		 collect (logand 1 (ash number (- i))))))
 
 
-
 (typed assignments list list)
 (defun assignments (varids)
   "Return bitlist representation of numbers between 0 and |varids|"
   (loop for n in (range (expt 2 (length varids)))
 	collect (hashmap-from-list varids (integer-to-bit-list n))))
 
+
+;; ==============================================
+
+(defstruct diyset
+  hashmap
+  keys
+  )
+
+(defun make-set ()
+  (make-diyset :hashmap (make-hash-table) :keys '()))
+
+(defun set-contains (set x)
+  (hashmap-contains (diyset-hashmap set) x))
+
+(defun set-add (set x)
+  (if (set-contains set x) set
+      (make-diyset
+        :hashmap (add-to-hashmap x 't (diyset-hashmap set))
+        :keys    (cons x (diyset-keys set)))))
+
+
+(set-add (set-add (make-set) 'lol) 123)
