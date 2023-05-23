@@ -19,7 +19,7 @@
     (t (error "~S is not a boolean-symbol" s))))
 
 
-(typed truth-value? symbol boolean)
+(typed truth-value? t boolean)
 (defun truth-value? (sym)
   "Converts from a symbol 'true or 'false to 'T and 'NIL"
   (or (eq sym T) (eq sym NIL)))
@@ -72,8 +72,8 @@
       (if (eq expr 'true) T NIL))
      ((numberp expr)
       (if (> expr 0)
-	  (truthval-of expr hashmap)
-	  (not (truthval-of (abs expr) hashmap))))
+	  (value-of expr hashmap)
+	  (not (value-of (abs expr) hashmap))))
      ((and (listp expr) (eq (car expr) 'AND))  
       (every #'identity
 	     (map 'list #'(lambda (e) (eval-expr-assignment e hashmap)) (cdr expr))))
@@ -86,9 +86,13 @@
 ;; ======================================================= ;;
 
 
-(defstruct BDD varid low high)
+(defstruct BDD
+  varid
+  low
+  high)
 
-(defun generate-bdd (expr &optional ordering-function)
+
+(defun bdd-generate (expr &optional ordering-function)
   "Generate a BDD from a boolean expression"
   (let*
       ((ordered-vars
@@ -100,75 +104,42 @@
 	(eval-expr expr)
 	(make-BDD
 	 :varid k
-	 :low   (generate-bdd (expr-sub expr k 'false) ordering-function)
-	 :high  (generate-bdd (expr-sub expr k 'true)  ordering-function)))))
+	 :low   (bdd-generate (expr-sub expr k 'false) ordering-function)
+	 :high  (bdd-generate (expr-sub expr k 'true) ordering-function)))))
 
-(defparameter bdd1 (generate-bdd ex1))
+(defparameter bdd1 (bdd-generate '(or 1 (and 2 -3))))
+(defparameter bdd2 (bdd-generate '(or 1 (and 2 -3))))
+(defparameter bdd3 bdd2)
 
 
-(defun eval-bdd (bdd assignment)
+
+(defun bdd-eval (bdd assignment)
   (if (truth-value? bdd)
       bdd
-      (let ((bool (truthval-of (BDD-varid bdd) assignment)))
+      (let ((bool (value-of (BDD-varid bdd) assignment)))
 	(if bool
-	    (eval-bdd (BDD-high bdd) assignment)
-	    (eval-bdd (BDD-low bdd) assignment)))))
+	    (bdd-eval (BDD-high bdd) assignment)
+	    (bdd-eval (BDD-low bdd) assignment)))))
 
-(defun bdd-optimize (bdd hashcache)
+
+(defun bdd-optimize (bdd)
+  "Keep only one copy of identical subtrees"
+  (bdd-optimize-rec bdd (make-hash-table :test 'equalp)))
+
+(defun bdd-optimize-rec (bdd hashcache)
   (if (truth-value? bdd) bdd
       (let ((cached-value (gethash bdd hashcache)))
 	(if cached-value   ;; if a cached value exists
 	    cached-value
-	    (make-BDD :varid (BDD-varid bdd)
-		      :low   (bdd-optimize (BDD-low bdd)  hashcache)
-		      :high  (bdd-optimize (BDD-high bdd) hashcache))))))
-
-(defun bdd)
-
-;; ================ TESTING ========================== ;;
-
-(defun print-hashmap (hashmap)
-  (apply #'concatenate 'string
-	 (loop for value being the hash-values of hashmap
-		 using (hash-key key)
-               collect (format 'nil "(~A:~A) " key value))))
-
-(defun integer-to-bit-list (number)
-  ;;  10 => '(1 0 1 0)
-  (reverse (loop for i from 0 below (integer-length number)
-		 collect (logand 1 (ash number (- i))))))
-
-(defun hashmap-from-list (varids values)
-  ;; '(1 3 5)  '(0 1 0)   ==>   HashMap{1:0, 3:1, 5:0} 
-  (let ((hm (make-hash-table)))
-    (loop for x in varids
-	  for y in values do
-	    (setf (gethash x hm) (= y 1)))
-    hm))
-
-(defun assignments (varids)
-  (loop for n in (range (expt 2 (length varids)))
-	collect (hashmap-from-list varids (integer-to-bit-list n))))
-
-(defun truthval-of (varid hashmap)
-  (nth-value 0 (gethash varid hashmap)))
-
-
-;; (defun tester-bdd-eval1 (expr)
-;;   (let
-;;       ((bdd (generate-bdd expr)))
-;;     (loop for hashmap in (assignments (unique-vars expr)) do
-;;       (format t "~a: ~a~%"
-;; 	      (print-hashmap hashmap)
-;; 	      (eval-bdd bdd hashmap)))))
-
-;; (defun tester-bdd-eval2 (expr func-on-bdd)
-;;   (let
-;;       ((bdd (func-on-bdd (generate-bdd expr))))
-;;     (loop for hashmap in (assignments (unique-vars expr)) do
-;;       (format t "~a: ~a~%"
-;; 	      (print-hashmap hashmap)
-;; 	      (eval-bdd bdd hashmap)))))
+	    (let ((optimized-bdd
+		    (make-BDD
+		     :varid (BDD-varid bdd)
+		     :low   (bdd-optimize-rec (BDD-low bdd)  hashcache)
+		     :high  (bdd-optimize-rec (BDD-high bdd) hashcache))))
+	      (progn
+		(add-to-hashmap optimized-bdd optimized-bdd hashcache)
+		optimized-bdd))))))
+	      
 
 
 (defun bdd-not (bdd)
@@ -178,11 +149,24 @@
 		:low   (bdd-not (BDD-low bdd))
 		:high  (bdd-not (BDD-high bdd)))))
 
-(defun bdd-and (bdd1 bdd2)
-  
-  )
-;; ==============================================
-;; (defun cat (&rest rest) (concatenate 'string rest))
+
+(defun bdd-count-nodes (bdd)
+  (bdd-count-nodes-rec bdd (make-hash-table :test 'eq)))
+(defun bdd-count-nodes-rec (bdd hashmap)
+  (if (truth-value? bdd) 0
+      (let ((cached-value (gethash bdd hashmap)))
+	(if cached-value 0
+	    (let*
+		((lowcount  (bdd-count-nodes-rec (BDD-low bdd) hashmap))
+		 (highcount (bdd-count-nodes-rec (BDD-high bdd) hashmap)))
+	      (progn
+		(add-to-hashmap bdd 't hashmap)
+		(+ 1 lowcount highcount)))))))
+
+'(or (and 1 2) (and -1 -3) (and 1 -2 -3))
+
+
+;; ================ TESTING ========================== ;;
 
 (defun random-sign () (if (>= (random 1.0) 0.5) 1 -1))
 (defun random-varid () (* (random-sign) (+ 1 (random 10))))
@@ -203,14 +187,16 @@
 		       collect (random-expr (- depth 1)))))
 	  ))))
 
+
 (defun tester-compare-bdd-expr ()
+  "Test whether the eval of a random bexpr and relative BDD are equal"
   (let*
       ((expr (random-expr 1))
-       (bdd  (generate-bdd expr)))    
+       (bdd  (bdd-generate expr)))    
     (loop for hashmap in (assignments (unique-vars expr)) do
       (let
 	  ((eval-on-expr (eval-expr-assignment expr hashmap))
-	   (eval-on-bdd  (eval-bdd bdd hashmap)))
+	   (eval-on-bdd  (bdd-eval bdd hashmap)))
 	(if (not (eq eval-on-expr eval-on-bdd))
 	    (format t
 		    (concatenate 'string
@@ -222,7 +208,25 @@
 		    eval-on-expr
 		    eval-on-bdd))))))
 
-(defun ugly-pbt (num-testcases)
-  "Generate `num-testcases` expr and compare expr-eval with bdd-eval"
-  (dotimes (i num-testcases) (tester-compare-bdd-expr)))
 
+(defun tester-optimized-bdd-has-less-nodes ()
+  "Number of nodes in optimized BDD must be <= than unoptimized BDD"
+  (let*
+      ((expr (random-expr 2))
+       (bdd  (bdd-generate expr))
+       (bdd-opt (bdd-optimize bdd)))
+    (if (not (<= (bdd-count-nodes bdd-opt) (bdd-count-nodes bdd)))
+	(format t
+		(concatenate 'string
+			     "~%=========================~%"
+			     "Expression:~%~a ~%BDD:~%~a ~%BDD-OPT:~%~a ~%~a ~a~%")
+		expr
+		bdd
+		bdd-opt
+		(bdd-count-nodes bdd)
+		(bdd-count-nodes bdd-opt)))))
+
+
+(defun ugly-pbt (tester-function num-testcases)
+  "Runner for pseudo-PBT tests"
+  (dotimes (i num-testcases) (funcall tester-function)))
