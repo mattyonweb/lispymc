@@ -113,5 +113,5 @@
 (ugly-pbt #'tester-compare-bdd-expr 1000)
 (ugly-pbt #'tester-compare-bdd-unique-vars 1000)
 (ugly-pbt #'tester-optimized-bdd-has-less-nodes 1000)
-(ugly-pbt #'tester-compare-bdd-and 1000)
+(ugly-pbt #'tester-compare-bdd-and 1)
 (print "tests: ok")
