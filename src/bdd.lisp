@@ -1,6 +1,24 @@
 (load "utils.lisp")
 (load "hashmaps.lisp")
 
+
+(defun memoize (fn test-function)
+  (let ((cache (make-hash-table :test test-function)))
+    #'(lambda (&rest args)
+        (multiple-value-bind (result exists)
+            (gethash args cache)
+          (if exists
+              (progn
+		(format 't "Have cached value for args ~a: ~a~%" args result)
+		result)
+	      (progn
+		;; (format 't "Called with args ~a~%" args)
+		(let ((call-output (apply fn args)))
+		  (progn (hashmap-add args call-output cache)
+			 call-output))))))))
+	      ;; (setf (gethash args cache) (apply fn args)))))))
+
+
 (defparameter ex1 '(and 1 2 true (or -1 false 3) ))
 (defparameter ex2 '(0) )
 (defparameter ex3 '(or (and 1 2) (and -1 -3) (and 1 -2 -3)))
@@ -101,7 +119,7 @@
 (defun bdd-generate-rec (expr &optional ordering-function)
   "Generate a BDD from a boolean expression"
   (let*
-      ((ordered-vars
+      ((ordered-vars  ; (possibly sorted) list of varids
 	 (if (null ordering-function)
 	     (unique-vars expr)
 	     (funcall ordering-function (unique-vars expr))))
@@ -112,6 +130,8 @@
 	      (new-high (bdd-generate-rec (expr-sub expr k 'true) ordering-function)))
 	  (if (equalp new-low new-high) new-low
 	      (make-BDD :varid k :low new-low :high new-high))))))
+;; (setf (fdefinition 'bdd-generate-rec) (memoize #'bdd-generate-rec #'equalp))
+
 
 (defun bdd-optimize (bdd)
   "Keep only one copy of identical subtrees"
@@ -150,19 +170,46 @@
 		:high  (bdd-not (BDD-high bdd)))))
 
 
+;; (defun bdd-count-nodes (bdd)
+;;   "For testing. Count how many unique nodes (=refs) are in a BDD."
+;;   (bdd-count-nodes-rec bdd (make-hash-table :test 'eq)))
+;; (defun bdd-count-nodes-rec (bdd hashmap)
+;;   (if (truth-value? bdd) 0
+;;       (let ((cached-value (gethash bdd hashmap)))
+;; 	(if cached-value 0
+;; 	    (let*
+;; 		((lowcount  (bdd-count-nodes-rec (BDD-low bdd) hashmap))
+;; 		 (highcount (bdd-count-nodes-rec (BDD-high bdd) hashmap)))
+;; 	      (progn
+;; 		(add-to-hashmap bdd 't hashmap)
+;; 		(+ 1 lowcount highcount)))))))
+
+
+
+
+
+
+
+
+
+
+
 (defun bdd-count-nodes (bdd)
-  "For testing. Count how many unique nodes (=refs) are in a BDD."
-  (bdd-count-nodes-rec bdd (make-hash-table :test 'eq)))
-(defun bdd-count-nodes-rec (bdd hashmap)
   (if (truth-value? bdd) 0
-      (let ((cached-value (gethash bdd hashmap)))
-	(if cached-value 0
-	    (let*
-		((lowcount  (bdd-count-nodes-rec (BDD-low bdd) hashmap))
-		 (highcount (bdd-count-nodes-rec (BDD-high bdd) hashmap)))
-	      (progn
-		(add-to-hashmap bdd 't hashmap)
-		(+ 1 lowcount highcount)))))))
+      (let*
+	  ((lowcount  (bdd-count-nodes (BDD-low bdd)))
+	   (highcount (bdd-count-nodes (BDD-high bdd))))
+	(+ 1 lowcount highcount))))
+(setf (fdefinition 'bdd-count-nodes) (memoize #'bdd-count-nodes #'equalp))
+
+
+
+
+
+
+
+
+
 
 
 (defun bdd-unique-vars (bdd)
