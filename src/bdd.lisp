@@ -276,36 +276,8 @@ how do you do it?"
 	(bdd-binop-core-algorithm bdd1 bdd2 min hashmap #'bdd-or-rec))))
 
 
-;; (defun bdd-restrict (bdd varid bool)
-;;   (bdd-restrict-rec bdd varid bool (make-hash-table :test 'equalp)))
-
-;; (defun bdd-restrict-rec (bdd varid bool cache)
-;;   (cond ((truth-value? bdd) bdd)
-	
-;; 	;; if bdd was previously restricted, retrieve from cache
-;; 	((hashmap-contains bdd cache)
-;; 	 (hashmap-get bdd cache))  
-
-;; 	;; if this is a node with the right varid, restrict it
-;; 	((= (BDD-varid bdd) varid)
-;; 	 (if bool (BDD-high bdd) (BDD-low bdd)))
-
-;; 	;; otherwise, recurse 
-;; 	(t (let* ((new-low  (bdd-restrict-rec (BDD-low bdd) varid bool cache))
-;; 		  (new-high (bdd-restrict-rec (BDD-high bdd) varid bool cache)))
-
-;; 	     ;; if the two subtrees are identical, don't create new bdd
-;; 	     (if (equalp new-low new-high) new-low
-;; 		 ;; otherwise, create new bdd
-;; 		 (progn (hashmap-add bdd
-;; 			      (make-BDD :varid (BDD-varid bdd)
-;; 					:low  new-low
-;; 					:high new-high)
-;; 			      cache)
-;; 			(hashmap-get bdd cache)))))))
-
-
 (defun bdd-restrict (bdd varid bool)
+  "Restrict(BDD,x,0) removes node `x` and links predecessor with :low of x"
   (cond ((truth-value? bdd) bdd)
 
 	;; if this is a node with the right varid, restrict it
@@ -323,3 +295,9 @@ how do you do it?"
 			   :low  new-low
 			   :high new-high))))))
 (memoize bdd-restrict)
+
+
+(defun bdd-exists (bdd varid min)
+  (bdd-or (bdd-restrict bdd varid 'nil)
+	  (bdd-restrict bdd varid 't)
+	  min))
