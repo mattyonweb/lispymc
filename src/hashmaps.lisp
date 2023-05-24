@@ -9,7 +9,13 @@
 	    (setf (gethash x hm) (= y 1)))
     hm))
 
-
+(defun hashmap-quick (l)
+  (reduce (lambda (hm xs)
+	    (destructuring-bind (L R) xs
+	      (hashmap-add L R hm)))
+	  l
+	  :initial-value (make-hash-table)))
+  
 (defun add-to-hashmap (k v hashmap) ; deprecated
   (setf (gethash k hashmap) v)
   hashmap)

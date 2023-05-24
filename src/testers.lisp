@@ -141,12 +141,14 @@ found in the relative bexpr"
 
 
 (defun hashmap-restrict (bdd hashmap)
-  (let ((assoc-list (loop for k being the hash-key
-			    using (hash-value v) of hashmap
-			  collect (list k v))))
-    (reduce (lambda (acc entry) (bdd-restrict acc (car entry) (car (last entry))))
-	    assoc-list
-	    :initial-value bdd)))
+  (let ((assoc-list
+	  (loop for k being the hash-key
+		  using (hash-value v) of hashmap
+		collect (list k v))))
+    (reduce
+     (lambda (acc entry) (bdd-restrict acc (car entry) (car (last entry))))
+     assoc-list
+     :initial-value bdd)))
 
 (defun tester-bdd-full-restrict-and-eval ()
   "Test whether the eval of a random bexpr and relative BDD are equal"
@@ -186,5 +188,6 @@ found in the relative bexpr"
 (ugly-pbt #'tester-optimized-bdd-has-less-nodes 1000)
 (ugly-pbt #'tester-compare-bdd-and 1000)
 (ugly-pbt #'tester-compare-bdd-or 1000)
+(ugly-pbt #'tester-bdd-full-restrict-and-eval 1000)
 
 (print "tests: ok")
