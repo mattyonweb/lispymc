@@ -1,4 +1,5 @@
 (load "bdd.lisp")
+(load "hashmaps.lisp")
 
 (defun random-sign () (if (>= (random 1.0) 0.5) 1 -1))
 (defun random-varid () (* (random-sign) (+ 1 (random 10))))
@@ -33,8 +34,11 @@
 	(if (not (eq eval-on-expr eval-on-bdd))
 	    (format t
 		    (concatenate 'string
-		     "~%=========================~%"
-		     "Expression:~%~a ~%BDD:~%~a ~%Assignment:~%~a ~%~a ~a~%")
+		     "~%========CMP-BDD-EXPR==============~%"
+		     "Expression:~%~a ~%"
+		     "BDD:~%~a ~%"
+		     "Assignment:~%~a ~%"
+		     "~a ~a~%")
 		    expr
 		    bdd
 		    (print-hashmap hashmap)
@@ -52,7 +56,10 @@
 	(format t
 		(concatenate 'string
 			     "~%=========================~%"
-			     "Expression:~%~a ~%BDD:~%~a ~%BDD-OPT:~%~a ~%~a ~a~%")
+			     "Expression:~%~a ~%"
+			     "BDD:~%~a ~%"
+			     "BDD-OPT:~%~a ~%"
+			     "~a ~a~%")
 		expr
 		bdd
 		bdd-opt
@@ -62,16 +69,17 @@
 
 
 (defun tester-compare-bdd-unique-vars ()
-  "Test whether the eval of a random bexpr and relative BDD are equal"
+  "Test whether the set of unique vars in a BDD is a subset of unique vars
+found in the relative bexpr"
   (let*
       ((expr (random-expr 1))
        (bdd  (bdd-generate expr))  
        (eval-on-expr (unique-vars expr))
        (eval-on-bdd  (bdd-unique-vars bdd)))
-    (if (not (equal eval-on-expr eval-on-bdd))
+    (if (not (subsetp eval-on-bdd eval-on-expr))
 	(format t
 		(concatenate 'string
-			     "~%=========================~%"
+			     "~%=========UNIQUE-VARS==============~%"
 			     "Expression:~%~a ~%BDD:~%~a ~%~a ~a~%")
 		expr
 		bdd
@@ -109,8 +117,8 @@
 (defun tester-compare-bdd-or ()
   "Test whether the eval of a random bexpr and relative BDD are equal"
   (let*
-      ((expr1 (random-expr 1))
-       (expr2 (random-expr 1))
+      ((expr1 (random-expr 2))
+       (expr2 (random-expr 2))
        (expr3 (list 'or expr1 expr2))
        (bdd1  (bdd-generate expr1))    
        (bdd2  (bdd-generate expr2))    

@@ -1,4 +1,5 @@
 (load "utils.lisp")
+(load "hashmaps.lisp")
 
 (defparameter ex1 '(and 1 2 true (or -1 false 3) ))
 (defparameter ex2 '(0) )
@@ -94,6 +95,10 @@
 
 
 (defun bdd-generate (expr &optional ordering-function)
+  "Generate an optimized BDD from a boolean expression"  
+  (bdd-optimize (bdd-generate-rec expr ordering-function)))
+
+(defun bdd-generate-rec (expr &optional ordering-function)
   "Generate a BDD from a boolean expression"
   (let*
       ((ordered-vars
@@ -101,22 +106,12 @@
 	     (unique-vars expr)
 	     (funcall ordering-function (unique-vars expr))))
        (k (car ordered-vars)))
-    (if (null k)
-	(eval-expr expr)
-	(make-BDD
-	 :varid k
-	 :low   (bdd-generate (expr-sub expr k 'false) ordering-function)
-	 :high  (bdd-generate (expr-sub expr k 'true) ordering-function)))))
-
-
-(defun bdd-eval (bdd assignment)
-  (if (truth-value? bdd)
-      bdd
-      (let ((bool (value-of (BDD-varid bdd) assignment)))
-	(if bool
-	    (bdd-eval (BDD-high bdd) assignment)
-	    (bdd-eval (BDD-low bdd) assignment)))))
-
+    (if (null k) ; k is 'nil when there are no vars in the expr anymore
+	(eval-expr expr) ; in that case, evaluate the remaining boolean expression 
+	(let ((new-low  (bdd-generate-rec (expr-sub expr k 'false) ordering-function))
+	      (new-high (bdd-generate-rec (expr-sub expr k 'true) ordering-function)))
+	  (if (equalp new-low new-high) new-low
+	      (make-BDD :varid k :low new-low :high new-high))))))
 
 (defun bdd-optimize (bdd)
   "Keep only one copy of identical subtrees"
@@ -134,7 +129,17 @@
 	      (progn
 		(add-to-hashmap optimized-bdd optimized-bdd hashcache)
 		optimized-bdd))))))
-	      
+
+
+
+(defun bdd-eval (bdd assignment)
+  (if (truth-value? bdd)
+      bdd
+      (let ((bool (value-of (BDD-varid bdd) assignment)))
+	(if bool
+	    (bdd-eval (BDD-high bdd) assignment)
+	    (bdd-eval (BDD-low bdd) assignment)))))
+
 
 (defun bdd-not (bdd)
   "Negate a BDD formula."
@@ -175,11 +180,17 @@
 
 (defun bdd-and (bdd1 bdd2 min)
   (bdd-and-rec bdd1 bdd2 min (make-hash-table :test 'equalp)))
+(defun bdd-and-rec (bdd1 bdd2 min hashmap)
+  ;; first, check if you are in a terminal condition
+  (let ((base-case-check (bdd-and-base-case bdd1 bdd2 hashmap)))
+    (if (not (eq base-case-check 'keep-going))
+	base-case-check
+	(bdd-binop-core-algorithm bdd1 bdd2 min hashmap #'bdd-and-rec))))
 
 (defun bdd-and-base-case (bdd1 bdd2 hashmap)
   (cond
     ;; if already in cache, do nothing
-    ((hashmap-contains hashmap (list bdd1 bdd2))
+    ((hashmap-contains (list bdd1 bdd2) hashmap)
      (value-of (list bdd1 bdd2) hashmap))
 
     ;; basic boolean equalities
@@ -192,17 +203,8 @@
     ;; else, you can't terminate
     (t 'keep-going)))
 
-(defun bdd-and-rec (bdd1 bdd2 min hashmap)
-  ;; first, check if you are in a terminal condition
-  (let ((base-case-check (bdd-and-base-case bdd1 bdd2 hashmap)))
-    (if (not (eq base-case-check 'keep-going))
-	base-case-check
-	(bdd-binop-core-algorithm bdd1 bdd2 min hashmap #'bdd-and-rec))))
-
-
 
 (defun bdd-binop-core-algorithm (bdd1 bdd2 min hashmap recfunc)
-  ;; otherwise:
   ;; get smallest varid `k`
   (let* ((k (funcall min (BDD-varid bdd1) (BDD-varid bdd2))))       
     (multiple-value-bind (b0 b1 c0 c1)
@@ -230,7 +232,7 @@
 (defun bdd-or-base-case (bdd1 bdd2 hashmap)
   (cond
     ;; if already in cache, do nothing
-    ((hashmap-contains hashmap (list bdd1 bdd2))
+    ((hashmap-contains (list bdd1 bdd2) hashmap)
      (value-of (list bdd1 bdd2) hashmap))
 
     ;; basic boolean equalities
@@ -249,3 +251,32 @@
     (if (not (eq base-case-check 'keep-going))
 	base-case-check
 	(bdd-binop-core-algorithm bdd1 bdd2 min hashmap #'bdd-or-rec))))
+
+
+(defun bdd-restrict (bdd varid bool)
+  (bdd-restrict-rec bdd varid bool (make-hash-table :test 'equalp)))
+
+(defun bdd-restrict-rec (bdd varid bool cache)
+  (cond ((truth-value? bdd) bdd)
+	
+	;; if bdd was previously restricted, retrieve from cache
+	((hashmap-contains bdd cache)
+	 (hashmap-get bdd cache))  
+
+	;; if this is a node with the right varid, restrict it
+	((= (BDD-varid bdd) varid)
+	 (if bool (BDD-high bdd) (BDD-low bdd)))
+
+	;; otherwise, recurse 
+	(t (let* ((new-low  (bdd-restrict (BDD-low bdd) varid bool))
+		  (new-high (bdd-restrict (BDD-high bdd) varid bool)))
+
+	     ;; if the two subtrees are identical, don't create new bdd
+	     (if (equalp new-low new-high) new-low
+		 ;; otherwise, create new bdd
+		 (progn (hashmap-add bdd
+			      (make-BDD :varid (BDD-varid bdd)
+					:low  new-low
+					:high new-high)
+			      cache)
+			(hashmap-get bdd cache)))))))

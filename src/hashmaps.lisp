@@ -10,18 +10,22 @@
     hm))
 
 
-(defun add-to-hashmap (k v hashmap)
+(defun add-to-hashmap (k v hashmap) ; deprecated
   (setf (gethash k hashmap) v)
   hashmap)
+(defun hashmap-add (k v hashmap)
+  (add-to-hashmap k v hashmap))
 
-
-(defun hashmap-contains (hashmap k)
+(defun hashmap-contains (k hashmap)
   (nth-value 1 (gethash k hashmap)))
 
 
-(defun value-of (varid hashmap)
+(defun value-of (varid hashmap)    ; deprecated
   "Given a hashmap, returns hashmap[varid]"
   (nth-value 0 (gethash varid hashmap)))
+(defun hashmap-get (varid hashmap)
+  "Given a hashmap, returns hashmap[varid]"
+  (value-of varid hashmap))
 
 
 (typed print-hashmap hash-table string)
@@ -60,7 +64,7 @@ hash map (no 'NIL values)"
   (make-diyset :hashmap (make-hash-table) :keys '()))
 
 (defun set-contains (set x)
-  (hashmap-contains (diyset-hashmap set) x))
+  (hashmap-contains x (diyset-hashmap set)))
 
 (defun set-add (set x)
   (if (set-contains set x) set
