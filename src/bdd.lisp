@@ -2,21 +2,25 @@
 (load "hashmaps.lisp")
 
 
-(defun memoize (fn test-function)
+(defun memoizer (fn test-function)
   (let ((cache (make-hash-table :test test-function)))
     #'(lambda (&rest args)
         (multiple-value-bind (result exists)
             (gethash args cache)
           (if exists
               (progn
-		(format 't "Have cached value for args ~a: ~a~%" args result)
+		;; (format 't "Have cached value for args ~a: ~a~%" args result)
 		result)
 	      (progn
-		;; (format 't "Called with args ~a~%" args)
 		(let ((call-output (apply fn args)))
 		  (progn (hashmap-add args call-output cache)
 			 call-output))))))))
-	      ;; (setf (gethash args cache) (apply fn args)))))))
+
+(defmacro memoize (func &optional test-func)
+  "After a (defun funcname ...), invoke (memoize funcname) to make it memoized"
+  (if (null test-func)
+      `(setf (fdefinition 'func) (memoizer #',func #'equalp))
+      `(setf (fdefinition 'func) (memoizer #',func #',test-func))))
 
 
 (defparameter ex1 '(and 1 2 true (or -1 false 3) ))
@@ -130,11 +134,11 @@
 	      (new-high (bdd-generate-rec (expr-sub expr k 'true) ordering-function)))
 	  (if (equalp new-low new-high) new-low
 	      (make-BDD :varid k :low new-low :high new-high))))))
-;; (setf (fdefinition 'bdd-generate-rec) (memoize #'bdd-generate-rec #'equalp))
 
 
 (defun bdd-optimize (bdd)
-  "Keep only one copy of identical subtrees"
+  "Keep only one copy of identical subtrees.
+TODO: can be done interleaved in bdd-generate-rec, probably faster"
   (bdd-optimize-rec bdd (make-hash-table :test 'equalp)))
 (defun bdd-optimize-rec (bdd hashcache)
   (if (truth-value? bdd) bdd
@@ -162,53 +166,25 @@
 
 
 (defun bdd-not (bdd)
-  "Negate a BDD formula."
+  "Negate a BDD formula.
+TODO: this is the slow way. It would be faster to swap 'NILs and 'T, but
+how do you do it?"
   (if (truth-value? bdd)
       (not bdd)
       (make-BDD :varid (BDD-varid bdd)
 		:low   (bdd-not (BDD-low bdd))
 		:high  (bdd-not (BDD-high bdd)))))
-
-
-;; (defun bdd-count-nodes (bdd)
-;;   "For testing. Count how many unique nodes (=refs) are in a BDD."
-;;   (bdd-count-nodes-rec bdd (make-hash-table :test 'eq)))
-;; (defun bdd-count-nodes-rec (bdd hashmap)
-;;   (if (truth-value? bdd) 0
-;;       (let ((cached-value (gethash bdd hashmap)))
-;; 	(if cached-value 0
-;; 	    (let*
-;; 		((lowcount  (bdd-count-nodes-rec (BDD-low bdd) hashmap))
-;; 		 (highcount (bdd-count-nodes-rec (BDD-high bdd) hashmap)))
-;; 	      (progn
-;; 		(add-to-hashmap bdd 't hashmap)
-;; 		(+ 1 lowcount highcount)))))))
-
-
-
-
-
-
-
-
-
+(memoize bdd-not)
 
 
 (defun bdd-count-nodes (bdd)
+  "Just for debugging."
   (if (truth-value? bdd) 0
       (let*
 	  ((lowcount  (bdd-count-nodes (BDD-low bdd)))
 	   (highcount (bdd-count-nodes (BDD-high bdd))))
 	(+ 1 lowcount highcount))))
-(setf (fdefinition 'bdd-count-nodes) (memoize #'bdd-count-nodes #'equalp))
-
-
-
-
-
-
-
-
+(memoize bdd-count-nodes)
 
 
 
@@ -300,15 +276,37 @@
 	(bdd-binop-core-algorithm bdd1 bdd2 min hashmap #'bdd-or-rec))))
 
 
-(defun bdd-restrict (bdd varid bool)
-  (bdd-restrict-rec bdd varid bool (make-hash-table :test 'equalp)))
+;; (defun bdd-restrict (bdd varid bool)
+;;   (bdd-restrict-rec bdd varid bool (make-hash-table :test 'equalp)))
 
-(defun bdd-restrict-rec (bdd varid bool cache)
-  (cond ((truth-value? bdd) bdd)
+;; (defun bdd-restrict-rec (bdd varid bool cache)
+;;   (cond ((truth-value? bdd) bdd)
 	
-	;; if bdd was previously restricted, retrieve from cache
-	((hashmap-contains bdd cache)
-	 (hashmap-get bdd cache))  
+;; 	;; if bdd was previously restricted, retrieve from cache
+;; 	((hashmap-contains bdd cache)
+;; 	 (hashmap-get bdd cache))  
+
+;; 	;; if this is a node with the right varid, restrict it
+;; 	((= (BDD-varid bdd) varid)
+;; 	 (if bool (BDD-high bdd) (BDD-low bdd)))
+
+;; 	;; otherwise, recurse 
+;; 	(t (let* ((new-low  (bdd-restrict-rec (BDD-low bdd) varid bool cache))
+;; 		  (new-high (bdd-restrict-rec (BDD-high bdd) varid bool cache)))
+
+;; 	     ;; if the two subtrees are identical, don't create new bdd
+;; 	     (if (equalp new-low new-high) new-low
+;; 		 ;; otherwise, create new bdd
+;; 		 (progn (hashmap-add bdd
+;; 			      (make-BDD :varid (BDD-varid bdd)
+;; 					:low  new-low
+;; 					:high new-high)
+;; 			      cache)
+;; 			(hashmap-get bdd cache)))))))
+
+
+(defun bdd-restrict (bdd varid bool)
+  (cond ((truth-value? bdd) bdd)
 
 	;; if this is a node with the right varid, restrict it
 	((= (BDD-varid bdd) varid)
@@ -321,9 +319,7 @@
 	     ;; if the two subtrees are identical, don't create new bdd
 	     (if (equalp new-low new-high) new-low
 		 ;; otherwise, create new bdd
-		 (progn (hashmap-add bdd
-			      (make-BDD :varid (BDD-varid bdd)
-					:low  new-low
-					:high new-high)
-			      cache)
-			(hashmap-get bdd cache)))))))
+		 (make-BDD :varid (BDD-varid bdd)
+			   :low  new-low
+			   :high new-high))))))
+(memoize bdd-restrict)

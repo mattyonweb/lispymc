@@ -38,19 +38,30 @@ hash map (no 'NIL values)"
                collect (format 'nil "(~A:~A) " key value))))
 
 
-(typed integer-to-bit-list integer list)
-(defun integer-to-bit-list (number)
+(defun left-pad (l max-len)
+  (if (< (length l) max-len)
+      (concatenate 'list
+	      (loop for i from 0 below (- max-len (length l))
+		   collect 0)
+	      l)
+      l))
+
+
+(defun integer-to-bit-list (number num-bits)
   "Convert a number to a list containing its bits.
  ex. 10 => '(1 0 1 0)"
-  (reverse (loop for i from 0 below (integer-length number)
-		 collect (logand 1 (ash number (- i))))))
+  (left-pad
+   (reverse (loop for i from 0 below (integer-length number)
+		  collect
+		  (logand 1 (ash number (- i)))))
+   num-bits))
 
 
 (typed assignments list list)
 (defun assignments (varids)
   "Return bitlist representation of numbers between 0 and |varids|"
   (loop for n in (range (expt 2 (length varids)))
-	collect (hashmap-from-list varids (integer-to-bit-list n))))
+	collect (hashmap-from-list varids (integer-to-bit-list n (length varids)))))
 
 
 ;; ==============================================

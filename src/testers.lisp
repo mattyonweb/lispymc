@@ -139,6 +139,42 @@ found in the relative bexpr"
 		    eval-on-expr
 		    eval-on-bdd))))))
 
+
+(defun hashmap-restrict (bdd hashmap)
+  (let ((assoc-list (loop for k being the hash-key
+			    using (hash-value v) of hashmap
+			  collect (list k v))))
+    (reduce (lambda (acc entry) (bdd-restrict acc (car entry) (car (last entry))))
+	    assoc-list
+	    :initial-value bdd)))
+
+(defun tester-bdd-full-restrict-and-eval ()
+  "Test whether the eval of a random bexpr and relative BDD are equal"
+  (let*
+      ((expr (random-expr 1))
+       (bdd  (bdd-generate expr))
+       (asses (assignments (unique-vars expr))))
+       ;; (_ (format 't "List of assignments: ~a~%" asses)))    
+    ; iterate on all possible assignments for the varids
+    (loop for hashmap in (assignments (unique-vars expr)) do
+      (let
+	  ;; ((_ (format 't "PRE-ASSIGNMENT: ~a~%" hashmap))
+	  ((eval-on-bdd (bdd-eval bdd hashmap))
+	   (eval-on-bdd-restrict (hashmap-restrict bdd hashmap)))
+	(if (not (eq eval-on-bdd eval-on-bdd-restrict))
+	    (format t
+		    (concatenate 'string
+		     "~%========CMP-BDD-RESTRICT==============~%"
+		     "Expression:~%~a ~%"
+		     "BDD:~%~a ~%"
+		     "Assignment:~%~a ~%"
+		     "~a ~a~%")
+		    expr
+		    bdd
+		    (print-hashmap hashmap)
+		    eval-on-bdd
+		    eval-on-bdd-restrict))))))
+
 ;; ======================================================
 
 (defun ugly-pbt (tester-function num-testcases)
