@@ -33,6 +33,10 @@
   "Given a hashmap, returns hashmap[varid]"
   (value-of varid hashmap))
 
+(defun hashmap-keys (hashmap)
+  (loop for key being the hash-keys of hashmap
+	collect key))
+
 
 (typed print-hashmap hash-table string)
 (defun print-hashmap (hashmap)

@@ -95,8 +95,10 @@
 
 
 (defun bdd-generate (expr &optional ordering-function)
-  "Generate an optimized BDD from a boolean expression"  
-  (bdd-optimize (bdd-generate-rec expr ordering-function)))
+  "Generate an optimized BDD from a boolean expression"
+  (cond
+    ((truth-value? expr) expr)
+    (t (bdd-optimize (bdd-generate-rec expr ordering-function)))))
 
 (defun bdd-generate-rec (expr &optional ordering-function)
   "Generate a BDD from a boolean expression"
@@ -131,6 +133,31 @@ TODO: can be done interleaved in bdd-generate-rec, probably faster"
 	      (progn
 		(add-to-hashmap optimized-bdd optimized-bdd hashcache)
 		optimized-bdd))))))
+
+
+(defun bdd-to-expr (bdd)
+  (let ((result (bdd-to-expr-rec bdd '() '())))
+    (if (<= (length result) 1)
+	(car result)
+	(cons 'or result))))
+
+(defun bdd-to-expr-rec (bdd path result)
+  ;; TODO doesnt work
+  (cond
+    ((and (truth-value? bdd) bdd)  ; se ho raggiunto leaf = TRUE
+     (if (<= (length path) 1)
+	 (cons (car path) result)
+	 (cons (cons 'and path) result)))
+    ((truth-value? bdd) '())  ; if is 'nil
+    (t (concatenate 'list
+	 (bdd-to-expr-rec
+	   (BDD-low bdd)
+	   (cons (- (BDD-varid bdd)) path)
+	   result)
+	 (bdd-to-expr-rec
+	   (BDD-high bdd)
+	   (cons (BDD-varid bdd) path)
+	   result)))))
 
 
 
@@ -257,35 +284,19 @@ how do you do it?"
 (defun bdd-restrict (bdd varid bool)
   "Restrict(BDD,x,0) removes node `x` and links predecessor with :low of x"
   (bdd-restrict-multiple bdd (hashmap-quick (list (list varid bool)))))
-  ;;   (cond ((truth-value? bdd) bdd)
-
-;; 	;; if this is a node with the right varid, restrict it
-;; 	((= (BDD-varid bdd) varid)
-;; 	 (if bool (BDD-high bdd) (BDD-low bdd)))
-
-;; 	;; otherwise, recurse 
-;; 	(t (let* ((new-low  (bdd-restrict (BDD-low bdd) varid bool))
-;; 		  (new-high (bdd-restrict (BDD-high bdd) varid bool)))
-
-;; 	     ;; if the two subtrees are identical, don't create new bdd
-;; 	     (if (equalp new-low new-high) new-low
-;; 		 ;; otherwise, create new bdd
-;; 		 (make-BDD :varid (BDD-varid bdd)
-;; 			   :low  new-low
-;; 			   :high new-high))))))
-;; (memoize bdd-restrict)
-
 
 (defun bdd-restrict-multiple (bdd restrict-hm)
-  "Restrict(BDD,x,0) removes node `x` and links predecessor with :low of x"
+  "Given an hashmap {varid ~> bool}, apply multiple restrictions at the
+same time"
+  ;; TODO: is it actually useful? You never actually use it!
   (cond
     ((truth-value? bdd) bdd)
 
-    ;; if this node's varid is in the hm, subtitute it
+    ;; if this node's varid is in the hm, remove it
     ((hashmap-contains (BDD-varid bdd) restrict-hm)
      (if (hashmap-get (BDD-varid bdd) restrict-hm)
-	 (BDD-high bdd)
-	 (BDD-low bdd)))
+	 (bdd-restrict-multiple (BDD-high bdd) restrict-hm)
+	 (bdd-restrict-multiple (BDD-low bdd)  restrict-hm)))
 
     ;; otherwise, recurse 
     (t (let* ((new-low  (bdd-restrict-multiple (BDD-low bdd) restrict-hm))
@@ -306,6 +317,17 @@ how do you do it?"
 	  (bdd-restrict bdd varid 't)
 	  min))
 
+(defun bdd-exists-multiple (bdd varlist min)
+  ;; basically: apply bdd-exists for every var in varlist
+  (reduce
+   (lambda (acc varid) (bdd-exists acc varid min))
+     ;; (bdd-or (bdd-restrict acc varid 'nil)
+     ;; 	     (bdd-restrict acc varid 't)
+     ;; 	     min))
+   varlist
+   :initial-value bdd))
+
+
 (defun bdd-rename (bdd hashmap)
   (if (truth-value? bdd) bdd
       (let ((new-low (bdd-rename (BDD-low bdd) hashmap))
@@ -319,11 +341,6 @@ how do you do it?"
 	 :high new-high))))
 
 ;; ===================================================
-
-(defstruct KRIPKE-RAW
-  atomic-vars
-  states
-  relations)
 
 (defparameter atomic-vars '(1 2))
 (defparameter state0 '(1))
@@ -340,14 +357,20 @@ how do you do it?"
 
 
 (defun bdd-from-set (atomics state)
-  "Given a list of numbers, returns the corresponding BDD"
-  (bdd-generate
-   (cons 'and
-	 (loop for atomic in atomics
-	       collect
-	       (if (find atomic state)
-		   atomic
-		   (- atomic))))))
+  "Given a list of numbers (i.e. a state), returns the corresponding BDD.
+
+Ex: atomics = (1 3 4 6)
+    state   = (3 6)
+    ==> (BDD-generate '(and -1 3 -4 6))
+"
+  (progn (format 't "~a~%~a~%" atomics state)
+      (bdd-generate
+       (cons 'and
+	     (loop for atomic in atomics
+		   collect
+		   (if (find atomic state)
+		       atomic
+		       (- atomic)))))))
 
 
 (defun bdd-set-of-states (bdds min)
@@ -356,23 +379,38 @@ how do you do it?"
 
 
 (defun prime-atomics (atomics)
-  "Given list of all atomics, return assoc-list with old->new assignments"
+  "Given list of all atomics, return assoc-list with old->new assignments.
+
+Ex: atomics = '(1 3 5 7)
+    ==> HashTable{1:8, 3:10, 5:12, 7:14}
+"
   (hashmap-quick
    (let ((k (list-max atomics)))
      (loop for a in atomics
 	   collect
 	   (list a (+ a k))))))
 
+
 (defun unprime-atomics (atomics)
-  "Given list of all atomics, return assoc-list with old->new assignments"
+  "Given list of all atomics, return assoc-list with old->new assignments
+
+Ex: atomics = '(8 10 12 14)
+    ==> HashTable{8:1, 10:3, 12:5, 14:7}
+"
   (hashmap-quick
-   (let ((k (list-min atomics)))
+   (let ((k (list-max atomics)))
      (loop for a in atomics
 	   collect
-	   (list a (- a k))))))
+	   (list (+ a k) a)))))
+
 
 (defun bdd-from-edge (atomics edge min)
-  "Build the BDD representation of an edge between two BDDs."
+  "Build the BDD representation of an edge between two BDDs.
+
+Ex: atomic = '(1 3 5 7)
+    edge   = '(BDD1  BDD2)
+    ==> BDD(1 & (Prime BDD2))
+"
   (destructuring-bind (L R) edge
     (let ((R-prime (bdd-rename R (prime-atomics atomics))))
       (bdd-and L R-prime min))))
@@ -383,11 +421,16 @@ how do you do it?"
 	  set-of-states))
 
 
-(defstruct KRIPKE atomic-vars states relations-bdd min)
+(defstruct KRIPKE
+  atomic-vars    ;; list of positive integers
+  states         ;; represented as HashMap{symbol: BDD}
+  relations-bdd  ;; a BDD
+  min)
+
 
 (defmacro defkripke (m-atomic m-states m-rels m-min)
-  (let ((states-hm (make-hash-table)) ;; state-symbol ~> BDD
-	(edges 'NIL)) ;; BDD
+  (let ((states-hm (make-hash-table)) ;; Hashmap{state-symbol ~> BDD}
+	(edges 'NIL))                 ;; BDD
     
     (progn
       ;; Convert each statedef (s1 1 3 5) into a BDD
@@ -401,7 +444,6 @@ how do you do it?"
 	(loop for rhs in (cdr (cdr reldef)) do ; for all in (s2 s3 s4)
 	  (let* ((lhs-bdd (hashmap-get (car reldef) states-hm))
 		 (rhs-bdd (hashmap-get rhs states-hm)))
-		 ;; (_ (format 't "~a~%" (list lhs-bdd rhs-bdd))))
 	    (setf edges
 		  (bdd-or edges
 			  (bdd-from-edge m-atomic
@@ -414,10 +456,11 @@ how do you do it?"
 	:relations-bdd ,edges
 	:min ',m-min))))
 
+
 ;; example
 (defparameter kripke1
   (defkripke
-      (1 2 3 4)  ;; atomic propositions
+      (1 2)  ;; atomic propositions
       ((s0 1)    ;; definition of state 1
        (s1 1 2)  ;; definition of state 2
        (s2 2)    ;; ...
@@ -428,8 +471,64 @@ how do you do it?"
      (s3 -> s3))
     min))
 
+
+;; example
+(defparameter kripke2
+  (defkripke
+      (1 2 3 4)  ;; atomic propositions
+      ((s0)      ;; definition of state 1
+       (s1 1 2)  ;; definition of state 2
+       (s2 1 3)  ;; ...
+       (s3 1 3 4)
+       (s4 1 4))
+    ((s0 -> s1)  ;; definition of first edge
+     (s1 -> s1 s2)
+     (s2 -> s2 s3 s4)
+     (s3 -> s4)
+     (s4 -> s4))
+    min))
+
+
+(defun kripke-get-state (sym kripke)
+  (hashmap-get sym (KRIPKE-states kripke)))
+
 (defun bdd-image (kripke set-states-bdd)
-  (bdd-and set-states-bdd
-	   (KRIPKE-relations-bdd kripke)
-	   
-	   ))
+  (bdd-rename
+   (bdd-exists-multiple
+    (bdd-and set-states-bdd
+	     (KRIPKE-relations-bdd kripke)
+	     (KRIPKE-min kripke))
+    (KRIPKE-atomic-vars kripke)
+    (KRIPKE-min kripke))
+   (unprime-atomics (KRIPKE-atomic-vars kripke))))
+   
+  
+(defun bdd-preimage (kripke set-states-bdd)
+  (let ((primed-state
+	  (bdd-rename set-states-bdd
+		      (prime-atomics (KRIPKE-atomic-vars kripke)))))
+    (bdd-exists-multiple
+     (bdd-and (KRIPKE-relations-bdd kripke)
+	      primed-state
+	      (KRIPKE-min kripke))
+     (hashmap-keys (unprime-atomics (KRIPKE-atomic-vars kripke)))
+     (KRIPKE-min kripke))))
+
+
+(defun check-safety (kripke state0 prop)
+  (null (check-safety-rec kripke prop 'NIL state0)))
+(defun check-safety-rec (kripke prop S F)
+  (if (null F)  ; end recursion
+      (bdd-and S (bdd-not prop) (KRIPKE-min kripke))
+      (let ((new-S (bdd-or S F (KRIPKE-min kripke))))
+	(check-safety-rec kripke prop new-S
+			  (bdd-and (bdd-image kripke F)
+				   (bdd-not new-S)
+				   (KRIPKE-min kripke))))))
+
+(format 't "~a"
+	(check-safety
+	 kripke2
+	 (kripke-get-state 's0 kripke2)
+	 ;; (bdd-generate '(or (and -1 -2 -3 -4) 1))))
+	 (bdd-generate 1)))

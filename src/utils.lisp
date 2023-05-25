@@ -11,14 +11,12 @@
     #'(lambda (&rest args)
         (multiple-value-bind (result exists)
             (gethash args cache)
-          (if exists
-              (progn
-		;; (format 't "Have cached value for args ~a: ~a~%" args result)
-		result)
-	      (progn
-		(let ((call-output (apply fn args)))
-		  (progn (hashmap-add args call-output cache)
-			 call-output))))))))
+          (if exists result
+	      (let ((call-output (apply fn args)))
+		(progn
+		  (setf (gethash args cache) call-output) ;;add to hashmap
+		  call-output)))))))
+
 
 (defmacro memoize (func &optional test-func)
   "After a (defun funcname ...), invoke (memoize funcname) to make it memoized"
